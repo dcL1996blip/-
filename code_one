@@ -1,0 +1,141 @@
+import docx
+import win32com.client as wc
+import os
+import re
+import easygui
+
+
+class Work:
+    """
+    用于检测专利、论文等文档的关键字与标号对应，例：手机-23，检查全文这个关键词对应是否有错误。
+    """
+
+    def __init__(self):
+        self.user = easygui.fileopenbox()
+        self.text = []  # docx文档
+        self.num = []  # 标准标号列表
+        self.txt = []  # 关键词列表
+        self.list = []  # 词对照错误列表
+        self.num_error = []  # 数字对照错误列表
+        self.data_repeat = []  # 字体重复列表
+        self.t_t = "" 
+
+    def conversion(self):
+        """
+        格式转换 doc转docx
+        :return: 返回docx格式文档
+        """
+        word = wc.Dispatch("Word.Application")
+        doc = word.Documents.Open(self.user)
+        doc.SaveAs(self.user + "x", 12, False, "", True, "", False, False, False, False)
+        doc.Close()
+        word.Quit()
+        file = docx.Document(self.user + "x")
+        os.remove(self.user + 'x')
+        print("段落数：" + str(len(file.paragraphs)))
+        for para in file.paragraphs:
+            if not para.text.startswith("其中"):
+                self.text.append(para.text)
+
+        return file.paragraphs
+
+    def screen(self):
+        """
+        筛选关键段，提取词段存入列表
+        :return: 返回每段文本 list类型
+        """
+        data = self.conversion()
+        for para in data:
+            if not para.text.startswith("其中"):
+                continue
+            else:
+                para = para.text
+                pat_s = "、(.*?)[、。]"
+                pat_d = "[，](.*?)[、。]"
+                pat_f = "(.*?)[、。]"
+                data_s = re.compile(pat_s).findall(para)
+                data_d = re.compile(pat_d).findall(para)
+                data_f = re.compile(pat_f).findall(para)
+                data_f[0] = data_f[0].replace("其中", "").replace("，", "")
+                list_data = data_d + data_s + data_f
+                list_data = set(list_data)
+                list_data = list(list_data)
+                easygui.msgbox("标准词总计：" + str(len(list_data)) + "个！", ok_button="点击继续")
+                easygui.msgbox(list_data, "标准词库", ok_button="点击继续")
+                return list_data
+
+    def dict(self):
+        """
+        建立词库
+        :return: 返回标准的关键词与标号 list类型 
+        """
+        list_data = self.screen()
+        for data in list_data:
+            pat_num = "([0-9]+)"
+            data_num = re.compile(pat_num).findall(data)
+            pat_txt = "([\u4e00-\u9fa5]+)"
+            data_txt = re.compile(pat_txt).findall(data)
+            self.num.append(data_num)
+            self.txt.append(data_txt)
+
+    def match(self):
+        """
+        匹配文本内容
+        :return: 返回错误的关键词
+        """
+        self.dict()
+        for para in self.text:
+            t = para.replace("（", "").replace("-", "").replace(" ", "").replace("。", "") \
+                .replace("，", "").replace("；", "").replace("(", "").replace("）", "").replace(")", "")
+            self.t_t += t
+            for i in range(len(self.num)):
+                pat = "(\D{" + str(len(self.txt[i][0])) + "})" + str(self.num[i][0]) + "[^0-9]{1}"
+                data = re.compile(pat).findall(t)
+                for j in data:
+                    if j == self.txt[i][0] or "图" in j:
+                        continue
+                    else:
+                        self.list.append("-" + j + "-")
+        self.list = set(self.list)
+        self.list = list(self.list)
+        easygui.msgbox(self.list, "关键词检测", ok_button="点击继续")
+
+    def nums(self):
+        """
+        根据词查数字是否有误
+        :return: 返回对用错误的关键词-数字
+        """
+        self.match()
+        for i in range(len(self.txt)):
+            pat = str(self.txt[i][0]) + "([0-9]+)"
+            text = re.compile(pat).findall(self.t_t)
+            for j in set(text):
+                if j == self.num[i][0]:
+                    continue
+                else:
+                    self.num_error.append(self.txt[i][0] + j)
+        easygui.msgbox(self.num_error, "数字检测", ok_button="点击继续")
+
+    def repeat(self):
+        """
+        全文字体是否重复
+        :return: 返回重复的字体
+        """
+        self.nums()
+        for i in self.text:
+            for j in range(len(i) - 1):
+                if not i[j] == i[j + 1] or i[j] in ["1", "2", "3", "4", "5"]:
+                    continue
+                else:
+                    t = i[j] + i[j]
+                    self.data_repeat.append(t)
+        easygui.msgbox(self.data_repeat, "字体重复", ok_button="点击继续")
+
+
+if __name__ == '__main__':
+    a = "继续"
+    while a == "继续":
+        work = Work()
+        work.repeat()
+        choices = ["继续", "退出"]
+        a = easygui.buttonbox("是否继续进行检测？", choices=choices)
